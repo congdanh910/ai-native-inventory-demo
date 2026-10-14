@@ -3,8 +3,9 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from inventory.cli import main
+from inventory.cli import format_table, main
 from inventory.items import add_item
 from inventory.store import load_items, save_items
 
@@ -122,6 +123,93 @@ class StoreTests(unittest.TestCase):
         self.assertIn("AB-1", out.getvalue())
         self.assertIn("     3  Bolt", out.getvalue())
         self.assertEqual(main([*file, "adjust", "AB-1", "-9"]), 1)
+
+    def test_cli_add_normalizes_category(self):  # TC-3
+        save_items(self.path, [])
+
+        with patch("inventory.cli.now", return_value=T0):
+            result = main(
+                ["--file", str(self.path), "add", "AB-1", "Bolt", "--category", "  Tools "],
+                out=io.StringIO(),
+            )
+
+        self.assertEqual(result, 0)
+        self.assertEqual(load_items(self.path)[0].category, "tools")
+
+    def test_cli_add_empty_categories_are_none(self):  # TC-5
+        save_items(self.path, [])
+        file = ["--file", str(self.path)]
+
+        with patch("inventory.cli.now", return_value=T0):
+            results = [
+                main([*file, "add", "AB-1", "Bolt"], out=io.StringIO()),
+                main([*file, "add", "AB-2", "Nut", "--category", ""], out=io.StringIO()),
+                main([*file, "add", "AB-3", "Screw", "--category", "   "], out=io.StringIO()),
+            ]
+
+        self.assertEqual(results, [0, 0, 0])
+        loaded = load_items(self.path)
+        self.assertEqual(len(loaded), 3)
+        self.assertTrue(all(item.category is None for item in loaded))
+
+    def test_cli_list_shows_category_column(self):  # TC-11
+        items = add_item([], "AB-1", "Bolt", 5, T0, category="tools")
+        items = add_item(items, "AA-2", "Nut", 1, T0)
+        save_items(self.path, items)
+        out = io.StringIO()
+
+        result = main(["--file", str(self.path), "list"], out=out)
+
+        self.assertEqual(result, 0)
+        header, first_row, second_row = out.getvalue().splitlines()
+        self.assertTrue({"SKU", "QTY", "NAME", "CATEGORY"} <= set(header.split()))
+        self.assertEqual(first_row.split(), ["AA-2", "1", "Nut"])
+        self.assertEqual(second_row.split()[0], "AB-1")
+        self.assertIn("tools", second_row.split())
+
+    def test_format_table_shows_categories_in_sku_order(self):  # TC-12
+        items = add_item([], "AB-1", "Bolt", 5, T0, category="tools")
+        items = add_item(items, "AA-2", "Nut", 1, T0)
+
+        lines = format_table(items).splitlines()
+
+        self.assertEqual(len(lines), 3)
+        self.assertIn("CATEGORY", lines[0].split())
+        self.assertEqual(lines[1].split(), ["AA-2", "1", "Nut"])
+        self.assertEqual(lines[2].split()[0], "AB-1")
+        self.assertIn("tools", lines[2].split())
+
+    def test_cli_list_filters_normalized_category(self):  # TC-15
+        items = add_item([], "AB-1", "Bolt", 5, T0, category="tools")
+        items = add_item(items, "AA-3", "Saw", 1, T0, category="tools")
+        items = add_item(items, "CC-1", "Red", 2, T0, category="paint")
+        items = add_item(items, "DD-1", "Tape", 3, T0)
+        save_items(self.path, items)
+        out = io.StringIO()
+
+        result = main(["--file", str(self.path), "list", "--category", " TOOLS "], out=out)
+
+        self.assertEqual(result, 0)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 3)
+        self.assertIn("CATEGORY", lines[0].split())
+        self.assertEqual([line.split()[0] for line in lines[1:]], ["AA-3", "AB-1"])
+        self.assertTrue(all("tools" in line.split() for line in lines[1:]))
+        self.assertNotIn("CC-1", out.getvalue())
+        self.assertNotIn("DD-1", out.getvalue())
+
+    def test_cli_list_unmatched_category_is_header_only_and_read_only(self):  # TC-16
+        save_items(self.path, add_item([], "AB-1", "Bolt", 5, T0, category="tools"))
+        original_bytes = self.path.read_bytes()
+        out = io.StringIO()
+
+        result = main(["--file", str(self.path), "list", "--category", "garden"], out=out)
+
+        self.assertEqual(result, 0)
+        lines = out.getvalue().splitlines()
+        self.assertEqual(len(lines), 1)
+        self.assertIn("CATEGORY", lines[0].split())
+        self.assertEqual(self.path.read_bytes(), original_bytes)
 
 
 if __name__ == "__main__":
