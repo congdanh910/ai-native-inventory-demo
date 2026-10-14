@@ -13,6 +13,7 @@ class Item:
     quantity: int
     created_at: str  # ISO 8601, set by the caller so tests stay deterministic
     updated_at: str
+    category: str | None = None
 
 
 def normalize_sku(sku: str) -> str:
@@ -22,7 +23,18 @@ def normalize_sku(sku: str) -> str:
     return value
 
 
-def add_item(items: list[Item], sku: str, name: str, quantity: int, now: str) -> list[Item]:
+def normalize_category(category: str | None) -> str | None:
+    if category is None:
+        return None
+    if not isinstance(category, str):
+        raise ValueError("Category must be a string")
+    return category.strip().lower() or None
+
+
+def add_item(
+    items: list[Item], sku: str, name: str, quantity: int, now: str,
+    category: str | None = None,
+) -> list[Item]:
     sku = normalize_sku(sku)
     name = (name or "").strip()
     if not name:
@@ -31,7 +43,7 @@ def add_item(items: list[Item], sku: str, name: str, quantity: int, now: str) ->
         raise ValueError("Quantity must be a whole number of at least 0")
     if any(item.sku == sku for item in items):
         raise ValueError(f"SKU already exists: {sku}")
-    return [*items, Item(sku, name, quantity, now, now)]
+    return [*items, Item(sku, name, quantity, now, now, normalize_category(category))]
 
 
 def adjust_stock(items: list[Item], sku: str, delta: int, now: str) -> list[Item]:
@@ -61,3 +73,10 @@ def remove_item(items: list[Item], sku: str) -> list[Item]:
 
 def sorted_items(items: list[Item]) -> list[Item]:
     return sorted(items, key=lambda item: item.sku)
+
+
+def filter_by_category(items: list[Item], category: str | None) -> list[Item]:
+    category = normalize_category(category)
+    if category is None:
+        return list(items)
+    return [item for item in items if item.category == category]
