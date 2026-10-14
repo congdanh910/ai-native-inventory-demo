@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from inventory.items import Item
+from inventory.items import Item, normalize_category
 
 FORMAT_VERSION = 1
 
@@ -17,8 +17,11 @@ def load_items(path: Path) -> list[Item]:
     items = []
     for record in data["items"]:
         try:
+            category = record.get("category")
+            normalize_category(category)
             items.append(Item(sku=record["sku"], name=record["name"], quantity=int(record["quantity"]),
-                              created_at=record["created_at"], updated_at=record["updated_at"]))
+                              created_at=record["created_at"], updated_at=record["updated_at"],
+                              category=category))
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"{path} contains an invalid item: {record!r}") from exc
     return items
