@@ -1,0 +1,32 @@
+schema_version: 1
+project: inventory
+default_branch: main
+validation_image: python-3.12
+setup: []                            # standard library only
+validation:
+  - name: unit-tests
+    run: ["python", "-m", "unittest", "discover", "-s", "tests", "-t", "."]
+    timeout_seconds: 300
+  - name: compile
+    run: ["python", "-X", "pycache_prefix=/tmp/pyc", "-m", "compileall", "-q", "inventory"]
+paths:
+  allowed: ["inventory/**"]
+  tests: ["tests/**"]
+  protected: ["AGENTS.md", "CLAUDE.md", "REVIEW.md", "pyproject.toml"]
+testing:
+  red_check: true
+context:
+  include: ["inventory/**", "tests/**", "README.md", "pyproject.toml"]
+  exclude: []
+executors: [codex, claude]
+default_executor: codex
+limits:
+  max_tasks: 5
+  max_changed_files: 8
+stages:
+  spec: gated
+  plan: gated
+  coding: auto
+  review: auto
+artifacts:
+  commit_to_repo: true
